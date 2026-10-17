@@ -1,0 +1,69 @@
+version: '3.8'
+
+services:
+  postgres:
+    image: timescale/timescaledb:latest-pg15
+    container_name: telco_timescaledb
+    environment:
+      POSTGRES_DB: telecom_db
+      POSTGRES_USER: telco_admin
+      POSTGRES_PASSWORD: telco_secure_pass
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ../sql/01_init_postgres.sql:/docker-entrypoint-initdb.d/01_init.sql
+      - ../sql/02_gold_aggregates.sql:/docker-entrypoint-initdb.d/02_aggregates.sql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U telco_admin -d telecom_db"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    networks:
+      - telco_net
+
+  grafana:
+    image: grafana/grafana:10.1.0
+    container_name: telco_grafana
+    depends_on:
+      postgres:
+        condition: service_healthy
+    ports:
+      - "3000:3000"
+    environment:
+      - GF_SECURITY_ADMIN_USER=admin
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+      - GF_USERS_ALLOW_SIGN_UP=false
+    volumes:
+      - ../dashboards/provisioning/datasources:/etc/grafana/provisioning/datasources
+      - ../dashboards/provisioning/dashboards:/etc/grafana/provisioning/dashboards
+      - ../dashboards/grafana_telecom_dashboard.json:/etc/grafana/provisioning/dashboards/grafana_telecom_dashboard.json
+    networks:
+      - telco_net
+
+  pipeline:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+    container_name: telco_pipeline_runner
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      - USE_POSTGRES=true
+      - POSTGRES_HOST=postgres
+      - POSTGRES_PORT=5432
+      - POSTGRES_DB=telecom_db
+      - POSTGRES_USER=telco_admin
+      - POSTGRES_PASSWORD=telco_secure_pass
+    volumes:
+      - ../data:/app/data
+    networks:
+      - telco_net
+
+volumes:
+  pgdata:
+
+networks:
+  telco_net:
+    driver: bridge

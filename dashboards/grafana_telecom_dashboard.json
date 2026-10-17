@@ -1,0 +1,220 @@
+{
+  "annotations": {
+    "list": []
+  },
+  "editable": true,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 1,
+  "id": null,
+  "links": [],
+  "liveNow": false,
+  "panels": [
+    {
+      "collapsed": false,
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 0 },
+      "id": 100,
+      "title": "Executive KPI Scorecard",
+      "type": "row"
+    },
+    {
+      "datasource": { "type": "postgres", "uid": "telecom_pg_ds" },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "thresholds" },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "red", "value": null },
+              { "color": "orange", "value": 95 },
+              { "color": "green", "value": 99 }
+            ]
+          },
+          "unit": "percent"
+        }
+      },
+      "gridPos": { "h": 4, "w": 6, "x": 0, "y": 1 },
+      "id": 1,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+        "textMode": "auto"
+      },
+      "pluginVersion": "10.0.0",
+      "targets": [
+        {
+          "format": "table",
+          "rawSql": "SELECT timestamp AS time, AVG(CASE WHEN is_sla_compliant THEN 100.0 ELSE 0.0 END) AS sla_compliance_pct FROM silver_cell_telemetry WHERE $__timeFilter(timestamp) GROUP BY timestamp ORDER BY timestamp ASC;",
+          "refId": "A"
+        }
+      ],
+      "title": "Network SLA Compliance",
+      "type": "stat"
+    },
+    {
+      "datasource": { "type": "postgres", "uid": "telecom_pg_ds" },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "thresholds" },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "orange", "value": 45 },
+              { "color": "red", "value": 75 }
+            ]
+          },
+          "unit": "ms"
+        }
+      },
+      "gridPos": { "h": 4, "w": 6, "x": 6, "y": 1 },
+      "id": 2,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "reduceOptions": { "calcs": ["mean"] }
+      },
+      "targets": [
+        {
+          "format": "table",
+          "rawSql": "SELECT timestamp AS time, AVG(latency_ms) AS avg_latency FROM silver_cell_telemetry WHERE $__timeFilter(timestamp) GROUP BY timestamp ORDER BY timestamp ASC;",
+          "refId": "A"
+        }
+      ],
+      "title": "Mean RTT Latency",
+      "type": "stat"
+    },
+    {
+      "datasource": { "type": "postgres", "uid": "telecom_pg_ds" },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "thresholds" },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "orange", "value": 1.0 },
+              { "color": "red", "value": 3.0 }
+            ]
+          },
+          "unit": "percent"
+        }
+      },
+      "gridPos": { "h": 4, "w": 6, "x": 12, "y": 1 },
+      "id": 3,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "reduceOptions": { "calcs": ["mean"] }
+      },
+      "targets": [
+        {
+          "format": "table",
+          "rawSql": "SELECT timestamp AS time, AVG(packet_loss_pct) AS avg_loss FROM silver_cell_telemetry WHERE $__timeFilter(timestamp) GROUP BY timestamp ORDER BY timestamp ASC;",
+          "refId": "A"
+        }
+      ],
+      "title": "Mean Transport Packet Loss",
+      "type": "stat"
+    },
+    {
+      "datasource": { "type": "postgres", "uid": "telecom_pg_ds" },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "thresholds" },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "orange", "value": 5 },
+              { "color": "red", "value": 15 }
+            ]
+          }
+        }
+      },
+      "gridPos": { "h": 4, "w": 6, "x": 18, "y": 1 },
+      "id": 4,
+      "options": {
+        "colorMode": "value",
+        "reduceOptions": { "calcs": ["sum"] }
+      },
+      "targets": [
+        {
+          "format": "table",
+          "rawSql": "SELECT COUNT(*) AS active_anomalies FROM silver_cell_telemetry WHERE is_anomaly = TRUE AND $__timeFilter(timestamp);",
+          "refId": "A"
+        }
+      ],
+      "title": "Active Anomalies Detected",
+      "type": "stat"
+    },
+    {
+      "collapsed": false,
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 5 },
+      "id": 101,
+      "title": "Radio & Transport Time-Series Telemetry",
+      "type": "row"
+    },
+    {
+      "datasource": { "type": "postgres", "uid": "telecom_pg_ds" },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 6 },
+      "id": 5,
+      "title": "Average Throughput by Technology (Mbps)",
+      "type": "timeseries",
+      "targets": [
+        {
+          "format": "time_series",
+          "rawSql": "SELECT timestamp AS time, AVG(throughput_dl_mbps) AS \"Downlink (Mbps)\", AVG(throughput_ul_mbps) AS \"Uplink (Mbps)\" FROM silver_cell_telemetry WHERE $__timeFilter(timestamp) GROUP BY timestamp ORDER BY timestamp ASC;",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "datasource": { "type": "postgres", "uid": "telecom_pg_ds" },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 6 },
+      "id": 6,
+      "title": "Transport Round-Trip Latency & Jitter (ms)",
+      "type": "timeseries",
+      "targets": [
+        {
+          "format": "time_series",
+          "rawSql": "SELECT timestamp AS time, AVG(latency_ms) AS \"RTT Latency (ms)\", AVG(jitter_ms) AS \"Jitter (ms)\" FROM silver_cell_telemetry WHERE $__timeFilter(timestamp) GROUP BY timestamp ORDER BY timestamp ASC;",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "collapsed": false,
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 14 },
+      "id": 102,
+      "title": "Root Cause Analysis (RCA) Incident Log",
+      "type": "row"
+    },
+    {
+      "datasource": { "type": "postgres", "uid": "telecom_pg_ds" },
+      "gridPos": { "h": 7, "w": 24, "x": 0, "y": 15 },
+      "id": 7,
+      "title": "Diagnosed Network Faults & Remediation Feed",
+      "type": "table",
+      "targets": [
+        {
+          "format": "table",
+          "rawSql": "SELECT timestamp, cell_id, severity, root_cause_category, ROUND(confidence_score * 100, 0) AS confidence_pct, root_cause_summary, recommended_action, affected_users FROM gold_network_incidents ORDER BY timestamp DESC LIMIT 25;",
+          "refId": "A"
+        }
+      ]
+    }
+  ],
+  "schemaVersion": 38,
+  "style": "dark",
+  "tags": ["telecom", "kpi", "pipeline", "5g", "transport"],
+  "time": { "from": "now-6h", "to": "now" },
+  "timepicker": { "refresh_intervals": ["5s", "10s", "30s", "1m", "5m"] },
+  "timezone": "browser",
+  "title": "Telecom Network Performance & Observability",
+  "uid": "telecom_netpulse_ops",
+  "version": 1
+}
