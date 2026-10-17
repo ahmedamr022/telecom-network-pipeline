@@ -103,11 +103,26 @@ class DatabaseEngine:
                 conn.execute(text(f"INSERT INTO {table_name} SELECT * FROM {staging_table};"))
                 conn.execute(text(f"DROP TABLE IF EXISTS {staging_table};"))
         else:
-            # Idempotent staging upsert for DuckDB
+            # Idempotent staging upsert for DuckDB with automatic schema evolution
             tables = [r[0] for r in self._duck_conn.execute("SHOW TABLES").fetchall()]
             if table_name not in tables:
                 self._duck_conn.execute(f"CREATE TABLE {table_name} AS SELECT * FROM clean_df")
             else:
+                # Evolve schema if new columns were added to the contract
+                existing_cols = [c[0] for c in self._duck_conn.execute(f"DESCRIBE {table_name}").fetchall()]
+                for col in clean_df.columns:
+                    if col not in existing_cols:
+                        col_type = "VARCHAR"
+                        if pd.api.types.is_float_dtype(clean_df[col]):
+                            col_type = "DOUBLE"
+                        elif pd.api.types.is_integer_dtype(clean_df[col]):
+                            col_type = "BIGINT"
+                        elif pd.api.types.is_bool_dtype(clean_df[col]):
+                            col_type = "BOOLEAN"
+                        elif pd.api.types.is_datetime64_any_dtype(clean_df[col]):
+                            col_type = "TIMESTAMP"
+                        self._duck_conn.execute(f"ALTER TABLE {table_name} ADD COLUMN {col} {col_type};")
+
                 self._duck_conn.register("df_staging_view", clean_df)
                 pk_cond = " AND ".join([f"{table_name}.{k} = df_staging_view.{k}" for k in primary_keys])
                 self._duck_conn.execute(f"""
@@ -116,7 +131,7 @@ class DatabaseEngine:
                         SELECT 1 FROM df_staging_view WHERE {pk_cond}
                     );
                 """)
-                self._duck_conn.execute(f"INSERT INTO {table_name} SELECT * FROM df_staging_view;")
+                self._duck_conn.execute(f"INSERT INTO {table_name} BY NAME SELECT * FROM df_staging_view;")
                 self._duck_conn.unregister("df_staging_view")
 
     def close(self):
