@@ -8,14 +8,16 @@ from config.logging_config import logger
 class GoldAggregator:
     """
     Constructs business-ready, analytical Gold Layer dimensional aggregates.
-    Produces hourly cell-level rollups, regional SLA scorecards, and network incident logs.
+    Computes true empirical P95 latency distributions over individual ROP samples,
+    standardized 3GPP Busy-Hour PRB utilization, and regional SLA scorecards.
     """
 
     @staticmethod
     def aggregate_cell_hourly(silver_df: pd.DataFrame) -> pd.DataFrame:
         """
-        Rolls up 5-minute ROP telemetry into hourly cell-level KPI summaries
-        including 95th percentile latency, busy-hour PRB utilization, and total GB volume.
+        Rolls up 5-minute ROP telemetry into hourly cell-level KPI summaries.
+        Calculates P95 latency directly from empirical sample distributions
+        (never from pre-computed averages) and flags partial measurement hours.
         """
         if silver_df.empty:
             return pd.DataFrame()
@@ -24,7 +26,7 @@ class GoldAggregator:
         if not pd.api.types.is_datetime64_any_dtype(df["timestamp"]):
             df["timestamp"] = pd.to_datetime(df["timestamp"])
 
-        # Create date_hour bucket (e.g. 2026-10-17 18:00:00)
+        # Create discrete 1-hour time bucket (e.g. 2026-10-17 18:00:00)
         df["date_hour"] = df["timestamp"].dt.floor("h")
 
         # 5-minute interval: Throughput (Mbps) * 300 seconds / 8000 = Data Volume (Gigabytes)
@@ -35,13 +37,14 @@ class GoldAggregator:
             "technology", "frequency_band_mhz", "backhaul_type"
         ]
 
-        def p95(x):
-            return np.percentile(x, 95) if len(x) > 0 else 0.0
+        def empirical_p95(series):
+            clean_s = series.dropna()
+            return float(np.percentile(clean_s, 95)) if len(clean_s) > 0 else 0.0
 
         hourly = df.groupby(group_cols).agg(
             sample_count=("timestamp", "count"),
             avg_latency_ms=("latency_ms", "mean"),
-            p95_latency_ms=("latency_ms", p95),
+            p95_latency_ms=("latency_ms", empirical_p95),
             avg_jitter_ms=("jitter_ms", "mean"),
             avg_packet_loss_pct=("packet_loss_pct", "mean"),
             max_packet_loss_pct=("packet_loss_pct", "max"),
@@ -49,18 +52,20 @@ class GoldAggregator:
             max_throughput_dl_mbps=("throughput_dl_mbps", "max"),
             total_volume_gb=("volume_gb", "sum"),
             avg_prb_dl_pct=("prb_utilization_dl_pct", "mean"),
-            busy_hour_prb_dl_pct=("prb_utilization_dl_pct", "max"),
+            busy_hour_prb_dl_pct=("prb_utilization_dl_pct", "max"),  # Time-consistent busy hour peak
             avg_connected_users=("connected_users", "mean"),
             peak_connected_users=("connected_users", "max"),
             avg_rsrp_dbm=("rsrp_dbm", "mean"),
             avg_sinr_db=("sinr_db", "mean"),
-            avg_spectral_efficiency=("spectral_efficiency_bps_hz", "mean"),
+            avg_spectral_efficiency=("theoretical_spectral_efficiency_bps_hz", "mean"),
             avg_nqi=("network_quality_index", "mean"),
             sla_compliance_rate_pct=("is_sla_compliant", lambda x: (x.sum() / len(x)) * 100.0),
             anomaly_sample_count=("is_anomaly", "sum")
         ).reset_index()
 
-        # Round values for analytical presentation
+        # Flag partial measurement coverage (Nominal 1 hour has 12 samples of 5-min ROPs)
+        hourly["is_partial_hour"] = hourly["sample_count"] < 10
+
         float_cols = [c for c in hourly.columns if c.startswith(("avg_", "p95_", "max_", "total_", "busy_", "sla_"))]
         hourly[float_cols] = hourly[float_cols].round(2)
 

@@ -202,7 +202,7 @@
       "targets": [
         {
           "format": "table",
-          "rawSql": "SELECT timestamp, cell_id, severity, root_cause_category, ROUND(confidence_score * 100, 0) AS confidence_pct, root_cause_summary, recommended_action, affected_users FROM gold_network_incidents ORDER BY timestamp DESC LIMIT 25;",
+          "rawSql": "SELECT timestamp, cell_id, severity, suspected_cause, ROUND(confidence_score * 100, 0) AS confidence_pct, root_cause_summary, recommended_action, affected_users FROM gold_network_incidents ORDER BY timestamp DESC LIMIT 25;",
           "refId": "A"
         }
       ]

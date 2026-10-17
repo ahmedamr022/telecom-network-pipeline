@@ -1,5 +1,5 @@
 from pathlib import Path
-from typing import Optional, Any
+from typing import Optional, Any, List
 import duckdb
 import pandas as pd
 from sqlalchemy import create_engine, text
@@ -13,6 +13,7 @@ class DatabaseEngine:
     """
     Dual-mode Database Engine supporting both production PostgreSQL/TimescaleDB
     and embedded DuckDB for zero-dependency local execution.
+    Guarantees idempotency via primary-key upsert deduplication.
     """
 
     def __init__(self, use_postgres: bool = False):
@@ -28,7 +29,6 @@ class DatabaseEngine:
                     max_overflow=20,
                     pool_pre_ping=True
                 )
-                # Test connectivity
                 with self._pg_engine.connect() as conn:
                     conn.execute(text("SELECT 1;"))
                 logger.info(f"Connected to PostgreSQL at {settings.POSTGRES_HOST}:{settings.POSTGRES_PORT}")
@@ -68,17 +68,56 @@ class DatabaseEngine:
         if self.use_postgres and self._pg_engine:
             df.to_sql(table_name, self._pg_engine, if_exists=if_exists, index=False, method="multi", chunksize=1000)
         else:
-            # Register in DuckDB
             if if_exists == "replace":
                 self._duck_conn.execute(f"DROP TABLE IF EXISTS {table_name}")
                 self._duck_conn.execute(f"CREATE TABLE {table_name} AS SELECT * FROM df")
             else:
-                # Check if table exists
                 tables = [r[0] for r in self._duck_conn.execute("SHOW TABLES").fetchall()]
                 if table_name not in tables:
                     self._duck_conn.execute(f"CREATE TABLE {table_name} AS SELECT * FROM df")
                 else:
                     self._duck_conn.execute(f"INSERT INTO {table_name} SELECT * FROM df")
+
+    def upsert_dataframe(self, table_name: str, df: pd.DataFrame, primary_keys: List[str]) -> None:
+        """
+        Idempotent write: Updates existing records or inserts new ones based on primary_keys.
+        Guarantees that re-running the same batch or overlapping batches NEVER multiplies rows.
+        """
+        if df.empty:
+            return
+
+        clean_df = df.drop_duplicates(subset=primary_keys, keep="last")
+
+        if self.use_postgres and self._pg_engine:
+            # Staging table upsert for PostgreSQL
+            staging_table = f"stg_{table_name}"
+            with self._pg_engine.begin() as conn:
+                clean_df.to_sql(staging_table, conn, if_exists="replace", index=False)
+                pk_join = " AND ".join([f"{table_name}.{k} = {staging_table}.{k}" for k in primary_keys])
+                conn.execute(text(f"""
+                    DELETE FROM {table_name}
+                    WHERE EXISTS (
+                        SELECT 1 FROM {staging_table} WHERE {pk_join}
+                    );
+                """))
+                conn.execute(text(f"INSERT INTO {table_name} SELECT * FROM {staging_table};"))
+                conn.execute(text(f"DROP TABLE IF EXISTS {staging_table};"))
+        else:
+            # Idempotent staging upsert for DuckDB
+            tables = [r[0] for r in self._duck_conn.execute("SHOW TABLES").fetchall()]
+            if table_name not in tables:
+                self._duck_conn.execute(f"CREATE TABLE {table_name} AS SELECT * FROM clean_df")
+            else:
+                self._duck_conn.register("df_staging_view", clean_df)
+                pk_cond = " AND ".join([f"{table_name}.{k} = df_staging_view.{k}" for k in primary_keys])
+                self._duck_conn.execute(f"""
+                    DELETE FROM {table_name}
+                    WHERE EXISTS (
+                        SELECT 1 FROM df_staging_view WHERE {pk_cond}
+                    );
+                """)
+                self._duck_conn.execute(f"INSERT INTO {table_name} SELECT * FROM df_staging_view;")
+                self._duck_conn.unregister("df_staging_view")
 
     def close(self):
         if self._duck_conn:

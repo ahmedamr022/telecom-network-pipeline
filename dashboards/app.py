@@ -1,4 +1,5 @@
 import sys
+import re
 from pathlib import Path
 import streamlit as st
 import pandas as pd
@@ -44,21 +45,21 @@ st.markdown("""
         text-transform: uppercase;
         letter-spacing: 0.5px;
     }
-    .incident-badge-crit {
-        background-color: #BF616A;
-        color: white;
-        padding: 3px 8px;
+    .evidence-box {
+        background-color: #2E3440;
+        border-left: 4px solid #88C0D0;
+        padding: 8px 12px;
+        margin: 4px 0;
         border-radius: 4px;
-        font-weight: bold;
-        font-size: 11px;
+        font-size: 13px;
     }
-    .incident-badge-maj {
-        background-color: #D08770;
-        color: white;
-        padding: 3px 8px;
+    .alternative-box {
+        background-color: #2E3440;
+        border-left: 4px solid #EBCB8B;
+        padding: 8px 12px;
+        margin: 4px 0;
         border-radius: 4px;
-        font-weight: bold;
-        font-size: 11px;
+        font-size: 13px;
     }
 </style>
 """, unsafe_allow_html=True)
@@ -107,7 +108,7 @@ st.sidebar.title("📡 TelcoPulse NOC")
 st.sidebar.caption("Radio Access & IP Transport Observability")
 nav_choice = st.sidebar.radio(
     "Navigation",
-    ["Executive Overview", "Cell Topology & Map", "Telemetry Deep-Dive", "Incident RCA Feed", "DLQ Quarantine", "SQL Console"]
+    ["Executive Overview", "Cell Topology & Map", "Telemetry Deep-Dive", "Incident RCA Feed", "Data Quality & Lineage", "DLQ Quarantine", "SQL Console"]
 )
 
 # Pipeline trigger in sidebar
@@ -125,7 +126,7 @@ if st.sidebar.button("⚡ Ingest New 5-Min Telemetry ROP"):
         from datetime import datetime
 
         producer = TelecomTelemetryProducer()
-        frames = producer.generate_snapshot(datetime.now(), anomaly_ratio=0.10, corruption_ratio=0.03)
+        frames = producer.generate_snapshot(datetime.now(), anomaly_ratio=0.08, corruption_ratio=0.02)
         report = TelemetryContractValidator.validate_batch(frames)
         
         writer = BronzeStorageWriter()
@@ -167,7 +168,6 @@ if nav_choice == "Executive Overview":
     if silver_df.empty:
         st.warning("No telemetry records found. Click '⚡ Ingest New 5-Min Telemetry ROP' in the sidebar to populate the Lakehouse.")
     else:
-        # Top KPI Metrics Row
         latest_ts = silver_df["timestamp"].max()
         snapshot = silver_df[silver_df["timestamp"] == latest_ts]
 
@@ -192,9 +192,7 @@ if nav_choice == "Executive Overview":
 
         st.markdown("---")
 
-        # Two Column Layout: Regional Table and Latency Distribution
         r_col1, r_col2 = st.columns([1, 1])
-
         with r_col1:
             st.subheader("Regional SLA Performance")
             if not regional_df.empty:
@@ -226,12 +224,10 @@ if nav_choice == "Executive Overview":
                 template="plotly_dark",
                 color_discrete_map={"FIBER_10G": "#A3BE8C", "MICROWAVE_1G": "#EBCB8B"}
             )
-            # Add SLA threshold boundaries
             fig.add_vline(x=settings.SLA_MAX_LATENCY_MS, line_dash="dash", line_color="#BF616A", annotation_text="Max SLA Latency (50ms)")
             fig.add_hline(y=settings.SLA_MAX_PACKET_LOSS_PCT, line_dash="dash", line_color="#BF616A", annotation_text="Max SLA Loss (1%)")
             st.plotly_chart(fig, use_container_width=True)
 
-        # Bottom Row: Worst Performing Cells
         st.subheader("⚠️ Top 10 Degraded Cells Requiring Engineering Attention")
         if not worst_cells_df.empty:
             st.dataframe(
@@ -286,21 +282,12 @@ elif nav_choice == "Cell Topology & Map":
         fig_map.update_layout(height=650, margin={"r": 0, "t": 35, "l": 0, "b": 0})
         st.plotly_chart(fig_map, use_container_width=True)
 
-        st.subheader("Sector Azimuth & Transmission Profiles")
-        c1, c2 = st.columns(2)
-        with c1:
-            fig_tech = px.pie(map_df, names="technology", title="Technology Distribution", hole=0.4, color_discrete_sequence=["#88C0D0", "#81A1C1"])
-            st.plotly_chart(fig_tech, use_container_width=True)
-        with c2:
-            fig_bh = px.pie(map_df, names="backhaul_type", title="Backhaul Transmission Media", hole=0.4, color_discrete_sequence=["#A3BE8C", "#D08770"])
-            st.plotly_chart(fig_bh, use_container_width=True)
-
 # ------------------------------------------------------------------------------
 # PAGE 3: TELEMETRY DEEP-DIVE
 # ------------------------------------------------------------------------------
 elif nav_choice == "Telemetry Deep-Dive":
     st.title("📈 Cell Sector Telemetry Deep-Dive")
-    st.markdown("Granular 5-minute ROP time-series telemetry analysis.")
+    st.markdown("Granular 5-minute ROP time-series telemetry analysis comparing Shannon limits and discrete 3GPP modulation.")
 
     if not silver_df.empty:
         cells_list = sorted(silver_df["cell_id"].unique().tolist())
@@ -312,7 +299,6 @@ elif nav_choice == "Telemetry Deep-Dive":
             meta = cell_ts.iloc[0]
             st.info(f"📍 **Site:** `{meta['site_id']}` | **Region:** `{meta['region']}-{meta['subregion']}` | **Tech:** `{meta['technology']}` ({meta['frequency_band_mhz']} MHz, {meta['bandwidth_mhz']} MHz BW) | **Backhaul:** `{meta['backhaul_type']}`")
 
-            # 4 Key Charts
             col1, col2 = st.columns(2)
             with col1:
                 fig1 = px.line(cell_ts, x="timestamp", y=["throughput_dl_mbps", "throughput_ul_mbps"],
@@ -333,17 +319,18 @@ elif nav_choice == "Telemetry Deep-Dive":
                 st.plotly_chart(fig3, use_container_width=True)
 
             with col4:
-                fig4 = px.line(cell_ts, x="timestamp", y=["sinr_db", "rsrp_dbm"],
-                               title="Radio Frequency Quality (SINR dB vs RSRP dBm)", template="plotly_dark")
-                fig4.add_hline(y=0.0, line_dash="dash", line_color="red", annotation_text="Interference 0 dB")
+                # Compare Shannon continuous limit vs 3GPP discrete modulation efficiency
+                eff_cols = [c for c in ["theoretical_spectral_efficiency_bps_hz", "estimated_radio_efficiency_bps_hz", "measured_spectral_efficiency_bps_hz"] if c in cell_ts.columns]
+                fig4 = px.line(cell_ts, x="timestamp", y=eff_cols,
+                               title="Spectral Efficiency: Shannon Limit vs 3GPP Modulation vs Observed (bps/Hz)", template="plotly_dark")
                 st.plotly_chart(fig4, use_container_width=True)
 
 # ------------------------------------------------------------------------------
-# PAGE 4: INCIDENT RCA FEED
+# PAGE 4: INCIDENT RCA FEED (MULTI-EVIDENCE TRIAGE)
 # ------------------------------------------------------------------------------
 elif nav_choice == "Incident RCA Feed":
     st.title("🔍 Automated Root Cause Analysis (RCA) Incident Feed")
-    st.markdown("Diagnosed network anomalies with root cause explanations and NOC operational recommendations.")
+    st.markdown("Diagnosed network anomalies with empirical evidence chains, alternative causes evaluated, and operational recommendations.")
 
     if incidents_df.empty:
         st.success("🎉 No active network incidents recorded. All cell sectors operating within nominal thresholds.")
@@ -354,10 +341,33 @@ elif nav_choice == "Incident RCA Feed":
             severity = inc["severity"]
             badge_color = "red" if severity == "CRITICAL" else ("orange" if severity == "MAJOR" else "blue")
             
-            with st.expander(f"🚨 [{severity}] {inc['cell_id']} — {inc['root_cause_category']} ({inc.get('confidence_pct', 90)}% Confidence)"):
+            with st.expander(f"🚨 [{severity}] {inc['cell_id']} — {inc.get('suspected_cause', 'FAULT')} ({inc.get('confidence_pct', 90)}% Confidence)"):
                 c1, c2 = st.columns([2, 1])
                 with c1:
                     st.markdown(f"**Root Cause Diagnosis:**\n{inc['root_cause_summary']}")
+                    
+                    # Display supporting evidence chain
+                    ev_raw = inc.get("evidence_json", "[]")
+                    try:
+                        ev_list = json.loads(ev_raw) if isinstance(ev_raw, str) else ev_raw
+                    except Exception:
+                        ev_list = []
+                    if ev_list:
+                        st.markdown("**Empirical Evidence Chain:**")
+                        for item in ev_list:
+                            st.markdown(f"<div class='evidence-box'>✔ {item}</div>", unsafe_allow_html=True)
+
+                    # Display alternative causes evaluated
+                    alt_raw = inc.get("alternative_causes_json", "[]")
+                    try:
+                        alt_list = json.loads(alt_raw) if isinstance(alt_raw, str) else alt_raw
+                    except Exception:
+                        alt_list = []
+                    if alt_list:
+                        st.markdown("**Alternative Causes Evaluated:**")
+                        for item in alt_list:
+                            st.markdown(f"<div class='alternative-box'>⚖ {item}</div>", unsafe_allow_html=True)
+
                     st.markdown(f"**🔧 Recommended NOC Remediation:**\n`{inc['recommended_action']}`")
                 with c2:
                     st.metric("Affected Subscribers", f"{inc['affected_users']}")
@@ -365,7 +375,35 @@ elif nav_choice == "Incident RCA Feed":
                     st.caption(f"Timestamp: `{inc['timestamp']}`")
 
 # ------------------------------------------------------------------------------
-# PAGE 5: DLQ QUARANTINE
+# PAGE 5: DATA QUALITY & LINEAGE
+# ------------------------------------------------------------------------------
+elif nav_choice == "Data Quality & Lineage":
+    st.title("🛡️ Data Quality & Pipeline Observability")
+    st.markdown("Monitoring data contracts, Bronze-to-Gold flow rates, and perimeter rejection analytics.")
+
+    c1, c2, c3 = st.columns(3)
+    with c1:
+        bronze_files = list(settings.BRONZE_DIR.glob("**/*.parquet"))
+        total_bronze_kb = sum(f.stat().st_size for f in bronze_files) / 1024.0 if bronze_files else 0
+        st.metric("Bronze Parquet Files", len(bronze_files), f"{total_bronze_kb:.1f} KB total")
+    with c2:
+        silver_count = len(silver_df) if not silver_df.empty else 0
+        st.metric("Silver Curated Records", f"{silver_count:,}")
+    with c3:
+        st.metric("DLQ Quarantined Payloads", len(dlq_records))
+
+    st.markdown("---")
+    if dlq_records:
+        dlq_df = pd.DataFrame(dlq_records)
+        st.subheader("Perimeter Rejection Root-Cause Breakdown")
+        if "error_code" in dlq_df.columns:
+            err_counts = dlq_df["error_code"].value_counts().reset_index()
+            err_counts.columns = ["Error Code", "Occurrences"]
+            fig_err = px.bar(err_counts, x="Error Code", y="Occurrences", template="plotly_dark", color="Error Code")
+            st.plotly_chart(fig_err, use_container_width=True)
+
+# ------------------------------------------------------------------------------
+# PAGE 6: DLQ QUARANTINE
 # ------------------------------------------------------------------------------
 elif nav_choice == "DLQ Quarantine":
     st.title("🛑 Dead-Letter Queue (DLQ) Diagnostic Viewer")
@@ -376,7 +414,6 @@ elif nav_choice == "DLQ Quarantine":
     else:
         st.metric("Quarantined Records", len(dlq_records))
         dlq_df = pd.DataFrame(dlq_records)
-        
         display_cols = [c for c in ["quarantine_timestamp", "error_code", "error_message", "rejection_stage"] if c in dlq_df.columns]
         st.dataframe(dlq_df[display_cols], use_container_width=True)
 
@@ -385,11 +422,11 @@ elif nav_choice == "DLQ Quarantine":
         st.json(dlq_records[selected_idx])
 
 # ------------------------------------------------------------------------------
-# PAGE 6: SQL CONSOLE
+# PAGE 7: SQL CONSOLE (STRICT READ-ONLY GUARDRAILS)
 # ------------------------------------------------------------------------------
 elif nav_choice == "SQL Console":
     st.title("💻 Lakehouse SQL Query Playground")
-    st.markdown("Run interactive SQL queries directly against the DuckDB / PostgreSQL storage engine.")
+    st.markdown("Run interactive **Read-Only** analytical queries against the DuckDB / PostgreSQL storage engine.")
 
     default_query = """SELECT 
     cell_id, 
@@ -397,18 +434,29 @@ elif nav_choice == "SQL Console":
     backhaul_type,
     ROUND(AVG(latency_ms), 1) AS avg_latency_ms,
     ROUND(AVG(packet_loss_pct), 2) AS avg_loss_pct,
-    ROUND(AVG(throughput_dl_mbps), 1) AS avg_dl_mbps
+    ROUND(AVG(throughput_dl_mbps), 1) AS avg_dl_mbps,
+    ROUND(AVG(theoretical_spectral_efficiency_bps_hz), 2) AS avg_shannon_eff,
+    ROUND(AVG(estimated_radio_efficiency_bps_hz), 2) AS avg_3gpp_eff
 FROM silver_cell_telemetry
 GROUP BY cell_id, technology, backhaul_type
 ORDER BY avg_loss_pct DESC
 LIMIT 15;"""
 
-    query = st.text_area("SQL Query:", value=default_query, height=160)
+    query = st.text_area("SQL Query (Read-Only SELECT):", value=default_query, height=160)
 
     if st.button("Execute SQL"):
-        try:
-            res_df = db_engine.query(query)
-            st.success(f"Query returned {len(res_df)} rows.")
-            st.dataframe(res_df, use_container_width=True)
-        except Exception as e:
-            st.error(f"SQL Execution Error: {e}")
+        # Security Guardrails: Enforce Read-Only Commands
+        clean_q = query.strip()
+        forbidden_pattern = r"\b(DROP|DELETE|UPDATE|INSERT|ALTER|TRUNCATE|CREATE|REPLACE|ATTACH|DETACH|GRANT|REVOKE|COPY|PRAGMA)\b"
+        
+        if re.search(forbidden_pattern, clean_q, re.IGNORECASE):
+            st.error("🚨 Security Alert: Only read-only SELECT and WITH statements are permitted in the NOC console. DDL and DML operations are blocked.")
+        elif not re.match(r"^\s*(SELECT|WITH)\b", clean_q, re.IGNORECASE):
+            st.error("Invalid query: Statements must start with SELECT or WITH.")
+        else:
+            try:
+                res_df = db_engine.query(clean_q)
+                st.success(f"Query returned {len(res_df)} rows.")
+                st.dataframe(res_df, use_container_width=True)
+            except Exception as e:
+                st.error(f"SQL Execution Error: {e}")

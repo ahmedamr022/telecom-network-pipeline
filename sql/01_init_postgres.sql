@@ -2,7 +2,6 @@
 -- TELECOM NETWORK PERFORMANCE PLATFORM - POSTGRESQL / TIMESCALEDB SCHEMA DDL
 -- ==============================================================================
 
--- Enable TimescaleDB extension if available
 CREATE EXTENSION IF NOT EXISTS timescaledb CASCADE;
 
 -- ------------------------------------------------------------------------------
@@ -32,6 +31,11 @@ CREATE INDEX IF NOT EXISTS idx_dim_cells_tech ON dim_cells(technology);
 -- ------------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS silver_cell_telemetry (
     timestamp TIMESTAMP WITHOUT TIME ZONE NOT NULL,
+    ingestion_timestamp TIMESTAMP WITHOUT TIME ZONE,
+    batch_id VARCHAR(16),
+    source_id VARCHAR(32),
+    schema_version VARCHAR(8),
+
     cell_id VARCHAR(32) NOT NULL,
     site_id VARCHAR(32) NOT NULL,
     technology VARCHAR(16) NOT NULL,
@@ -69,8 +73,10 @@ CREATE TABLE IF NOT EXISTS silver_cell_telemetry (
     longitude NUMERIC(9, 6) NOT NULL,
     nominal_capacity_mbps NUMERIC(7, 2) NOT NULL,
 
-    -- Derived Engineering Calculations
-    spectral_efficiency_bps_hz NUMERIC(5, 3),
+    -- Rigorous Physics & Efficiency Metrics
+    theoretical_spectral_efficiency_bps_hz NUMERIC(5, 3),
+    estimated_radio_efficiency_bps_hz NUMERIC(5, 3),
+    measured_spectral_efficiency_bps_hz NUMERIC(5, 3),
     throughput_per_user_mbps NUMERIC(7, 3),
     network_quality_index NUMERIC(5, 2),
     is_sla_compliant BOOLEAN NOT NULL,
@@ -87,20 +93,17 @@ CREATE TABLE IF NOT EXISTS silver_cell_telemetry (
     CONSTRAINT pk_silver_telemetry PRIMARY KEY (cell_id, timestamp)
 );
 
--- Optimize queries for time-range and cell lookups
 CREATE INDEX IF NOT EXISTS idx_silver_ts ON silver_cell_telemetry (timestamp DESC);
 CREATE INDEX IF NOT EXISTS idx_silver_cell_ts ON silver_cell_telemetry (cell_id, timestamp DESC);
 CREATE INDEX IF NOT EXISTS idx_silver_region_ts ON silver_cell_telemetry (region, timestamp DESC);
 CREATE INDEX IF NOT EXISTS idx_silver_anomaly ON silver_cell_telemetry (is_anomaly, severity) WHERE is_anomaly = TRUE;
 
--- Convert to TimescaleDB hypertable if TimescaleDB extension is active
 DO $$
 BEGIN
     IF EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'timescaledb') THEN
         PERFORM create_hypertable('silver_cell_telemetry', 'timestamp', if_not_exists => TRUE);
     END IF;
 EXCEPTION WHEN OTHERS THEN
-    -- Fallback gracefully to standard Postgres partitioned/indexed table
     RAISE NOTICE 'Continuing with standard PostgreSQL table indexing.';
 END $$;
 
@@ -162,15 +165,17 @@ CREATE TABLE IF NOT EXISTS gold_regional_sla (
 );
 
 -- ------------------------------------------------------------------------------
--- 5. INCIDENT MART: Root Cause Analysis Diagnoses
+-- 5. INCIDENT MART: Root Cause Analysis Diagnoses & Evidence
 -- ------------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS gold_network_incidents (
     incident_id VARCHAR(64) PRIMARY KEY,
     cell_id VARCHAR(32) NOT NULL,
     timestamp TIMESTAMP WITHOUT TIME ZONE NOT NULL,
     severity VARCHAR(16) NOT NULL,
-    root_cause_category VARCHAR(64) NOT NULL,
+    suspected_cause VARCHAR(64) NOT NULL,
     confidence_score NUMERIC(4, 2) NOT NULL,
+    evidence_json TEXT NOT NULL,
+    alternative_causes_json TEXT NOT NULL,
     root_cause_summary TEXT NOT NULL,
     recommended_action TEXT NOT NULL,
     affected_users INT NOT NULL,

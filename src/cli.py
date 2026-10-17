@@ -117,7 +117,7 @@ def run_pipeline(periods: int = 12, anomaly_ratio: float = 0.06):
             inc_table.add_row(
                 str(inc["cell_id"]),
                 str(inc["severity"]),
-                str(inc["root_cause_category"]),
+                str(inc.get("suspected_cause", "FAULT")),
                 f"{inc['confidence_pct']}%",
                 str(inc["recommended_action"])[:50] + "..."
             )

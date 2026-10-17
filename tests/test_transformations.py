@@ -36,8 +36,14 @@ def test_silver_enrichment_calculations():
     assert not enriched_df.empty
     row = enriched_df.iloc[0]
 
-    # Spectral Efficiency = 80.0 Mbps / 20.0 MHz = 4.0 bps/Hz
-    assert row["spectral_efficiency_bps_hz"] == 4.0
+    # Measured Spectral Efficiency = 80.0 Mbps / 20.0 MHz = 4.0 bps/Hz
+    assert row["measured_spectral_efficiency_bps_hz"] == 4.0
+
+    # Theoretical Shannon limit log2(1 + 10^(15/10)) = log2(1 + 31.62) = ~5.028 bps/Hz
+    assert 4.8 <= row["theoretical_spectral_efficiency_bps_hz"] <= 5.2
+
+    # Estimated 3GPP Modulation Efficiency (CQI 12 = 3.902 bps/Hz)
+    assert row["estimated_radio_efficiency_bps_hz"] == 3.902
 
     # Throughput per user = 80.0 / 40 = 2.0 Mbps
     assert row["throughput_per_user_mbps"] == 2.0

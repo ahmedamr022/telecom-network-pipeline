@@ -21,7 +21,7 @@ def test_rca_sleeping_cell_diagnosis():
 
     diagnosis = rca.diagnose_row(row)
     assert diagnosis is not None
-    assert diagnosis.root_cause_category == "BASEBAND_HARDWARE_LOCKUP"
+    assert diagnosis.suspected_cause == "BASEBAND_HARDWARE_LOCKUP"
     assert diagnosis.severity == "CRITICAL"
     assert "power-cycle" in diagnosis.recommended_action.lower()
 
@@ -49,7 +49,7 @@ def test_rca_backhaul_bottleneck_diagnosis():
 
     diagnosis = rca.diagnose_row(row)
     assert diagnosis is not None
-    assert diagnosis.root_cause_category == "BACKHAUL_TRANSPORT_BOTTLENECK"
+    assert diagnosis.suspected_cause == "BACKHAUL_TRANSPORT_BOTTLENECK"
     assert "reroute" in diagnosis.recommended_action.lower()
 
 
@@ -76,5 +76,5 @@ def test_rca_capacity_congestion_diagnosis():
 
     diagnosis = rca.diagnose_row(row)
     assert diagnosis is not None
-    assert diagnosis.root_cause_category == "RAN_CAPACITY_CONGESTION"
+    assert diagnosis.suspected_cause == "RAN_CAPACITY_CONGESTION"
     assert "load balancing" in diagnosis.recommended_action.lower()

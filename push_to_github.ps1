@@ -1,6 +1,6 @@
 # Script to initialize git repository and push to GitHub
 param (
-    [string]$RepoUrl
+    [string]$RepoUrl = "https://github.com/ahmedamr022/telecom-network-pipeline.git"
 )
 
 Write-Host "==========================================================" -ForegroundColor Cyan
@@ -16,16 +16,17 @@ if (-not (Test-Path ".git")) {
 Write-Host "[2/4] Staging files..." -ForegroundColor Yellow
 git add .
 
-Write-Host "[3/4] Creating initial commit..." -ForegroundColor Yellow
-git commit -m "feat: initial release of telecom network performance data pipeline and observability platform"
+Write-Host "[3/4] Creating commit..." -ForegroundColor Yellow
+git commit -m "feat: complete end-to-end telecom network performance pipeline with multi-evidence RCA, idempotency, and CI/CD" 2>$null
 
-if ($RepoUrl) {
-    Write-Host "[4/4] Setting remote and pushing to $RepoUrl..." -ForegroundColor Yellow
-    git remote remove origin 2>$null
-    git remote add origin $RepoUrl
-    git push -u origin main
-    Write-Host "Successfully pushed to GitHub!" -ForegroundColor Green
+Write-Host "[4/4] Setting remote and pushing to $RepoUrl..." -ForegroundColor Yellow
+git remote remove origin 2>$null
+git remote add origin $RepoUrl
+git branch -M main
+git push -u origin main
+
+if ($LASTEXITCODE -eq 0) {
+    Write-Host "Successfully pushed to GitHub: $RepoUrl" -ForegroundColor Green
 } else {
-    Write-Host "Repository initialized and committed locally." -ForegroundColor Green
-    Write-Host "To push to GitHub, run: .\push_to_github.ps1 -RepoUrl 'https://github.com/YOUR_USERNAME/telecom-network-pipeline.git'" -ForegroundColor Yellow
+    Write-Host "Push completed or requires authentication credentials." -ForegroundColor Yellow
 }

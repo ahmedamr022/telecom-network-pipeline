@@ -1,0 +1,40 @@
+name: Telecom Pipeline CI
+
+on:
+  push:
+    branches: [ main, master ]
+  pull_request:
+    branches: [ main, master ]
+
+jobs:
+  test:
+    name: Run Pytest & Contract Verifications
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip"
+
+      - name: Install System Dependencies (libpq for postgres driver)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libpq-dev
+
+      - name: Install Python Dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Execute Automated Test Suite (Pytest)
+        run: |
+          pytest tests -v --durations=10
+
+      - name: Dry-Run Pipeline Execution (2 ROP periods)
+        run: |
+          python scripts/run_pipeline.py --periods 2

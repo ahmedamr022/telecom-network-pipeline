@@ -68,11 +68,11 @@ ORDER BY date_hour DESC, region, technology;
 
 -- 5. Root Cause Analysis (RCA) Incident Distribution & Affected Users
 SELECT 
-    root_cause_category,
+    suspected_cause,
     severity,
     COUNT(*) AS incident_count,
     ROUND(AVG(confidence_score) * 100, 1) AS avg_confidence_pct,
     SUM(affected_users) AS total_subscribers_impacted
 FROM gold_network_incidents
-GROUP BY root_cause_category, severity
+GROUP BY suspected_cause, severity
 ORDER BY incident_count DESC;

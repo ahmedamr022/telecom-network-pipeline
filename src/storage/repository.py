@@ -8,6 +8,7 @@ class TelecomRepository:
     """
     Data Access Layer (Repository Pattern) providing high-level abstraction
     for querying telemetry, aggregated marts, and network incident logs.
+    All write methods enforce Idempotency via primary-key upsert deduplication.
     """
 
     def __init__(self, engine: DatabaseEngine = None):
@@ -18,20 +19,32 @@ class TelecomRepository:
         self.engine.write_dataframe("dim_cells", df, if_exists="replace")
 
     def save_silver_telemetry(self, df: pd.DataFrame) -> None:
-        """Appends cleaned, enriched 5-min telemetry to Silver store."""
-        self.engine.write_dataframe("silver_cell_telemetry", df, if_exists="append")
+        """
+        Idempotent store: Saves cleaned, enriched 5-min telemetry.
+        Deduplicates on primary key (cell_id, timestamp).
+        """
+        self.engine.upsert_dataframe("silver_cell_telemetry", df, primary_keys=["cell_id", "timestamp"])
 
     def save_gold_hourly(self, df: pd.DataFrame) -> None:
-        """Appends hourly cell KPI rollups to Gold store."""
-        self.engine.write_dataframe("gold_cell_hourly_kpi", df, if_exists="append")
+        """
+        Idempotent store: Saves hourly cell KPI rollups.
+        Deduplicates on primary key (cell_id, date_hour).
+        """
+        self.engine.upsert_dataframe("gold_cell_hourly_kpi", df, primary_keys=["cell_id", "date_hour"])
 
     def save_gold_regional(self, df: pd.DataFrame) -> None:
-        """Appends regional SLA scorecards to Gold store."""
-        self.engine.write_dataframe("gold_regional_sla", df, if_exists="append")
+        """
+        Idempotent store: Saves regional SLA scorecards.
+        Deduplicates on primary key (region, date_hour).
+        """
+        self.engine.upsert_dataframe("gold_regional_sla", df, primary_keys=["region", "date_hour"])
 
     def save_incidents(self, df: pd.DataFrame) -> None:
-        """Appends detected incidents & RCA diagnoses to Incident Mart."""
-        self.engine.write_dataframe("gold_network_incidents", df, if_exists="append")
+        """
+        Idempotent store: Saves detected incidents & RCA diagnoses.
+        Deduplicates on primary key (incident_id).
+        """
+        self.engine.upsert_dataframe("gold_network_incidents", df, primary_keys=["incident_id"])
 
     def get_worst_performing_cells(self, limit: int = 10) -> pd.DataFrame:
         """
@@ -63,15 +76,17 @@ class TelecomRepository:
             return pd.DataFrame()
 
     def get_recent_incidents(self, limit: int = 25) -> pd.DataFrame:
-        """Retrieves recent network incidents with root cause analysis."""
+        """Retrieves recent network incidents with root cause analysis and evidence."""
         sql = f"""
             SELECT 
                 incident_id,
                 cell_id,
                 timestamp,
                 severity,
-                root_cause_category,
+                suspected_cause,
                 ROUND(confidence_score * 100, 0) AS confidence_pct,
+                evidence_json,
+                alternative_causes_json,
                 root_cause_summary,
                 recommended_action,
                 affected_users
@@ -120,6 +135,8 @@ class TelecomRepository:
                 connected_users,
                 sinr_db,
                 rsrp_dbm,
+                theoretical_spectral_efficiency_bps_hz,
+                estimated_radio_efficiency_bps_hz,
                 network_quality_index,
                 is_sla_compliant,
                 is_anomaly

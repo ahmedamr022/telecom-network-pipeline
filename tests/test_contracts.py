@@ -1,3 +1,4 @@
+import math
 from datetime import datetime, timedelta
 import pytest
 from pydantic import ValidationError
@@ -59,6 +60,38 @@ def test_invalid_negative_latency_rejected():
     }
     with pytest.raises(ValidationError):
         RawTelemetryRecord(**invalid_payload)
+
+
+def test_nan_and_infinity_rejected():
+    invalid_nan = {
+        "timestamp": datetime.now(),
+        "cell_id": "CAI-EAST-001-S1",
+        "site_id": "CAI-EAST-001",
+        "technology": "4G_LTE",
+        "frequency_band_mhz": 1800,
+        "bandwidth_mhz": 20.0,
+        "latency_ms": float("nan"),  # NaN must be rejected
+        "jitter_ms": 2.0,
+        "packet_loss_pct": 0.1,
+        "backhaul_utilization_pct": 20.0,
+        "throughput_dl_mbps": 50.0,
+        "throughput_ul_mbps": 10.0,
+        "prb_utilization_dl_pct": 50.0,
+        "prb_utilization_ul_pct": 20.0,
+        "connected_users": 10,
+        "rsrp_dbm": -80.0,
+        "sinr_db": 10.0,
+        "cqi": 10,
+        "rrc_success_rate_pct": 99.0,
+        "erab_drop_rate_pct": 0.1
+    }
+    with pytest.raises(ValidationError):
+        RawTelemetryRecord(**invalid_nan)
+
+    invalid_inf = dict(invalid_nan)
+    invalid_inf["latency_ms"] = float("inf")  # Inf must be rejected
+    with pytest.raises(ValidationError):
+        RawTelemetryRecord(**invalid_inf)
 
 
 def test_invalid_cell_id_format_rejected():
